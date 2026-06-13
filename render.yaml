@@ -1,0 +1,23 @@
+# Render Blueprint — deploy with one click after connecting your repo.
+services:
+  - type: web
+    name: woo-wa-radar
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: WC_STORE_URL
+        sync: false
+      - key: WC_CONSUMER_KEY
+        sync: false
+      - key: WC_CONSUMER_SECRET
+        sync: false
+      - key: WC_STATUSES
+        value: pending,on-hold
+      - key: DEFAULT_COUNTRY_CODE
+        value: "91"
+      - key: SHIPPING_CHARGE
+        value: "150"
+      - key: BRAND_NAME
+        value: Your Store

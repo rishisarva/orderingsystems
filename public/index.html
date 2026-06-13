@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Order Desk</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="appbar">
+    <div class="brandblock">
+      <span class="pulse" id="livePulse" title="Live"></span>
+      <div>
+        <div class="eyebrow">Order desk</div>
+        <h1 class="brand" id="brandName">VisionsJersey</h1>
+      </div>
+    </div>
+
+    <div class="tabs" role="tablist">
+      <button class="tab active" data-tab="active" id="tabActive">
+        Active <span class="tabcount" id="activeCount">0</span>
+      </button>
+      <button class="tab" data-tab="done" id="tabDone">
+        Done <span class="tabcount" id="doneCount">0</span>
+      </button>
+    </div>
+
+    <div class="appbar-actions">
+      <span class="updated" id="updated"></span>
+      <button class="iconbtn" id="soundBtn" title="New-order sound">🔔</button>
+      <button class="btn ghost" id="editBtn">Edit message</button>
+      <button class="btn ghost" id="refreshBtn" title="Refresh now">
+        <span class="reicon" id="reIcon">↻</span> Refresh
+      </button>
+    </div>
+  </header>
+
+  <!-- Filter / sort toolbar (Active tab only) -->
+  <div class="toolbar" id="toolbar">
+    <div class="seg" id="dateSeg">
+      <button class="seg-item active" data-date="all">All</button>
+      <button class="seg-item" data-date="today">Today</button>
+      <button class="seg-item" data-date="yesterday">Yesterday</button>
+      <button class="seg-item" data-date="custom">Custom</button>
+    </div>
+    <div class="custom-range hidden" id="customRange">
+      <input type="date" id="fromDate" /> <span class="dash">→</span> <input type="date" id="toDate" />
+    </div>
+
+    <select class="select" id="statusSel" title="Filter by status">
+      <option value="all">All statuses</option>
+      <option value="pending">Pending</option>
+      <option value="on-hold">On hold</option>
+      <option value="cancelled">Cancelled</option>
+    </select>
+
+    <select class="select" id="sortSel" title="Sort">
+      <option value="newest">Newest first</option>
+      <option value="oldest">Oldest first</option>
+      <option value="amount-desc">Amount: high → low</option>
+      <option value="amount-asc">Amount: low → high</option>
+    </select>
+
+    <input class="search" id="search" type="search" placeholder="Search name, order #, phone…" />
+    <span class="result-count" id="resultCount"></span>
+  </div>
+
+  <div id="warnbox" class="warnbox hidden"></div>
+  <div id="errbox" class="errbox hidden"></div>
+
+  <main id="activeView">
+    <div class="grid" id="grid"></div>
+    <div id="emptyActive" class="empty hidden">
+      <div class="empty-mark">✓</div>
+      <p>You're all caught up.</p>
+      <span class="muted">New unpaid orders appear here on their own.</span>
+    </div>
+  </main>
+
+  <main id="doneView" class="hidden">
+    <div class="donelist" id="donelist"></div>
+    <div id="emptyDone" class="empty hidden">
+      <div class="empty-mark">—</div>
+      <p>Nothing messaged yet.</p>
+      <span class="muted">Orders you message move here with the time and text you sent.</span>
+    </div>
+  </main>
+
+  <!-- Slide-over message editor -->
+  <div class="overlay hidden" id="overlay"></div>
+  <aside class="editor hidden" id="editor" aria-label="Edit message">
+    <div class="editor-head">
+      <h2>Edit your message</h2>
+      <button class="iconbtn" id="closeEditor" title="Close">✕</button>
+    </div>
+    <p class="editor-hint">Write it like a normal WhatsApp message. Tap a tag to drop in order details:</p>
+    <div class="tokens" id="tokenRow"></div>
+    <textarea id="tplInput" spellcheck="true"></textarea>
+    <div class="preview-head">Preview</div>
+    <div class="wa-preview" id="tplPreview"></div>
+    <div class="editor-foot">
+      <button class="btn ghost" id="cancelEditor">Cancel</button>
+      <button class="btn primary" id="saveEditor">Save message</button>
+    </div>
+  </aside>
+
+  <script src="app.js"></script>
+</body>
+</html>
