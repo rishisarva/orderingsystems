@@ -241,7 +241,25 @@ function isServerCrash(text, httpStatus) {
 }
 
 // Fetch a single page of one status.
-async function fetchOrdersPage(status, page, perPage, attempt = 0) {
+// ---- Global request throttle ---------------------------------------------
+// The store rate-limits (429) when hit too fast. Funnel EVERY request through
+// this gate: at most MAX_CONCURRENT at once, with a minimum gap between starts.
+// Tune via WC_MIN_GAP_MS / WC_MAX_CONCURRENT if your host is stricter.
+const MIN_GAP_MS = parseInt(process.env.WC_MIN_GAP_MS || "400", 10);
+const MAX_CONCURRENT = parseInt(process.env.WC_MAX_CONCURRENT || "2", 10);
+let inFlight = 0;
+let lastStart = 0;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function gate() {
+  while (inFlight >= MAX_CONCURRENT) await sleep(40);
+  const since = Date.now() - lastStart;
+  if (since < MIN_GAP_MS) await sleep(MIN_GAP_MS - since);
+  lastStart = Date.now();
+  inFlight++;
+}
+const ungate = () => { inFlight = Math.max(0, inFlight - 1); };
+
+async function fetchOrdersPage(status, page, perPage) {
   const auth = Buffer.from(`${CFG.key}:${CFG.secret}`).toString("base64");
   const url =
     `${CFG.storeUrl}/wp-json/wc/v3/orders` +
@@ -254,46 +272,47 @@ async function fetchOrdersPage(status, page, perPage, attempt = 0) {
     `&consumer_key=${encodeURIComponent(CFG.key)}` +
     `&consumer_secret=${encodeURIComponent(CFG.secret)}`;
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), CFG.reqTimeoutMs);
-  try {
-    const r = await fetch(url, {
-      headers: {
-        Authorization: `Basic ${auth}`,
-        "User-Agent": "Mozilla/5.0 (OrderRadar)",
-        Accept: "application/json",
-      },
-      signal: controller.signal,
-    });
-    if (r.redirected) console.log(`[redirect] '${status}' landed at: ${r.url}`);
-    if (!r.ok) {
-      // Transient server hiccup -> back off and retry before reporting
+  for (let attempt = 0; ; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), CFG.reqTimeoutMs);
+    await gate(); // one throttle slot per attempt
+    let backoff = 0;
+    try {
+      const r = await fetch(url, {
+        headers: {
+          Authorization: `Basic ${auth}`,
+          "User-Agent": "Mozilla/5.0 (OrderRadar)",
+          Accept: "application/json",
+        },
+        signal: controller.signal,
+      });
+      if (r.redirected) console.log(`[redirect] '${status}' landed at: ${r.url}`);
+      if (r.ok) return { ok: true, orders: await r.json() };
+
       if ([429, 502, 503, 504].includes(r.status) && attempt < 2) {
-        // 429 = rate limited: wait noticeably longer before retrying
-        const wait = r.status === 429 ? 1500 * (attempt + 1) : 350 * (attempt + 1);
-        await new Promise((res) => setTimeout(res, wait));
-        return fetchOrdersPage(status, page, perPage, attempt + 1);
+        backoff = r.status === 429 ? 2000 * (attempt + 1) : 400 * (attempt + 1);
+      } else {
+        const body = await r.text();
+        return {
+          ok: false,
+          httpStatus: r.status,
+          redirectedTo: r.redirected ? r.url : undefined,
+          detail: body.slice(0, 300),
+          crash: isServerCrash(body, r.status),
+        };
       }
-      const body = await r.text();
-      return {
-        ok: false,
-        httpStatus: r.status,
-        redirectedTo: r.redirected ? r.url : undefined,
-        detail: body.slice(0, 300),
-        crash: isServerCrash(body, r.status),
-      };
+    } catch (err) {
+      if (attempt < 2) {
+        backoff = 400 * (attempt + 1);
+      } else {
+        const cause = err && err.cause ? err.cause : {};
+        return { ok: false, error: `${err.message}${cause.code ? " (" + cause.code + ")" : ""}`, network: true };
+      }
+    } finally {
+      clearTimeout(timer);
+      ungate(); // release the slot before we back off
     }
-    return { ok: true, orders: await r.json() };
-  } catch (err) {
-    // Transient network/timeout hiccup -> retry a couple of times before giving up
-    if (attempt < 2) {
-      await new Promise((res) => setTimeout(res, 350 * (attempt + 1)));
-      return fetchOrdersPage(status, page, perPage, attempt + 1);
-    }
-    const cause = err && err.cause ? err.cause : {};
-    return { ok: false, error: `${err.message}${cause.code ? " (" + cause.code + ")" : ""}`, network: true };
-  } finally {
-    clearTimeout(timer);
+    if (backoff) await sleep(backoff); // wait OUTSIDE the gate, then retry
   }
 }
 
@@ -366,7 +385,7 @@ async function fetchStatusAll(status) {
 
 // Cache the whole store fetch so client polling never hammers the store.
 let storeCache = { at: 0, data: null };
-const FULL_TTL = parseInt(process.env.WC_CACHE_MS || "45000", 10);
+const FULL_TTL = parseInt(process.env.WC_CACHE_MS || "20000", 10);
 
 async function getStoreOrders(fresh) {
   if (!fresh && storeCache.data && Date.now() - storeCache.at < FULL_TTL) {
