@@ -5,7 +5,7 @@
 //  - Date/status filters, sorting, search, and an editable message template
 // ===========================================================================
 
-const POLL_MS = 20000;     // quiet background refresh
+const POLL_MS = 15000;     // quiet background refresh (new orders appear within ~15-20s)
 const $ = (id) => document.getElementById(id);
 
 const state = {
