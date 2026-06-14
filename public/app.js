@@ -29,6 +29,15 @@ const state = {
 
 const cardEls = new Map();  // active order id -> card element
 
+// Local persistence (survives Render free-tier restarts, which wipe the server's data folder)
+const LS = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+state.template = LS.get("od_template", "");
+state.done = LS.get("od_done", []);
+state.locallyDone = new Set(state.done.map((o) => o.id));
+
 // ---------- helpers ----------
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) =>
@@ -206,6 +215,7 @@ function markDone(o, el) {
   state.orderMap.delete(o.id);
   state.orders = state.orders.filter((x) => x.id !== o.id);
   state.done.unshift({ ...snapshot(o), message: o.message || "", contactedAt: new Date().toISOString() });
+  LS.set("od_done", state.done);
   updateCounts();
   fetch("/api/contact", {
     method: "POST",
@@ -218,6 +228,7 @@ function undoDone(orderId) {
   state.locallyDone.delete(Number(orderId));
   state.locallyDone.delete(String(orderId));
   state.done = state.done.filter((o) => String(o.id) !== String(orderId));
+  LS.set("od_done", state.done);
   renderDone(); updateCounts();
   fetch("/api/uncontact", {
     method: "POST",
@@ -276,12 +287,19 @@ async function load(manual) {
     state.brand = data.brand || state.brand;
     state.upi = data.upi || "";
     state.shipping = data.shipping || state.shipping;
-    state.template = data.template || state.template;
     state.tokens = data.tokens || state.tokens;
-    state.done = data.done || [];
+    // Keep our locally-saved message if we have one; otherwise take the server's
+    if (!state.template) state.template = data.template || "";
     if (data.brand) $("brandName").textContent = data.brand;
 
-    // incoming orders, minus any we've just marked done locally
+    // Merge the server's "done" list into our browser-stored one (browser wins / union)
+    const doneMap = new Map(state.done.map((o) => [String(o.id), o]));
+    for (const o of (data.done || [])) if (!doneMap.has(String(o.id))) doneMap.set(String(o.id), o);
+    state.done = [...doneMap.values()].sort((a, b) => new Date(b.contactedAt) - new Date(a.contactedAt));
+    LS.set("od_done", state.done);
+    state.locallyDone = new Set(state.done.map((o) => o.id));
+
+    // incoming orders, minus anything already marked done (locally or on server)
     const incoming = (data.orders || []).filter((o) => !state.locallyDone.has(o.id));
     const incomingIds = new Set(incoming.map((o) => o.id));
 
@@ -289,9 +307,15 @@ async function load(manual) {
     let newCount = 0;
     if (!state.firstLoad) for (const o of incoming) if (!state.seen.has(o.id)) newCount++;
 
-    // STICKY merge: update/insert everything we received...
+    // STICKY merge: build each order's message from OUR saved template (not the
+    // server's, which may have reset), then update/insert everything received...
     const MISSING_LIMIT = 3;
-    for (const o of incoming) { state.orderMap.set(o.id, o); state.missing.set(o.id, 0); }
+    for (const o of incoming) {
+      o.message = buildClientMessage(o);
+      o.waLink = o.phone ? `https://wa.me/${o.phone}?text=${encodeURIComponent(o.message)}` : null;
+      state.orderMap.set(o.id, o);
+      state.missing.set(o.id, 0);
+    }
     // ...and only drop an order after it's been absent for several refreshes
     for (const id of [...state.orderMap.keys()]) {
       if (state.locallyDone.has(id)) { state.orderMap.delete(id); state.missing.delete(id); continue; }
@@ -351,7 +375,7 @@ function closeEditor() {
 function renderTokens() {
   const row = $("tokenRow");
   row.innerHTML = "";
-  (state.tokens.length ? state.tokens : ["{name}", "{order}", "{total}", "{shipping}", "{upi}", "{brand}"])
+  (state.tokens.length ? state.tokens : ["{name}", "{order}", "{total}", "{shipping}", "{delivery}", "{jersey}", "{discount}", "{upi}", "{brand}"])
     .forEach((tk) => {
       const b = document.createElement("button");
       b.className = "token"; b.textContent = tk;
@@ -372,7 +396,7 @@ function updatePreview() {
   // render with the first active order, or a sample
   const o = state.orders[0] || {
     firstName: "Rahul", customerName: "Rahul Verma", number: "1042",
-    currencySymbol: "₹", total: "1299",
+    currencySymbol: "₹", total: "1299.00", jersey: "1149.00", discount: "0.00", delivery: "1149.00",
   };
   const sym = o.currencySymbol || "₹";
   const map = {
@@ -380,6 +404,9 @@ function updatePreview() {
     "{order}": "#" + o.number,
     "{total}": sym + o.total,
     "{shipping}": sym + (state.shipping || "150"),
+    "{delivery}": sym + (o.delivery ?? o.total),
+    "{jersey}": sym + (o.jersey ?? o.total),
+    "{discount}": sym + (o.discount ?? "0.00"),
     "{upi}": state.upi || "(add your UPI ID)",
     "{brand}": state.brand || "our store",
   };
@@ -394,6 +421,9 @@ function buildClientMessage(o) {
     "{order}": "#" + o.number,
     "{total}": sym + o.total,
     "{shipping}": sym + (state.shipping || "150"),
+    "{delivery}": sym + (o.delivery ?? o.total),
+    "{jersey}": sym + (o.jersey ?? o.total),
+    "{discount}": sym + (o.discount ?? "0.00"),
     "{upi}": state.upi || "(add your UPI ID)",
     "{brand}": state.brand || "our store",
   };
@@ -427,6 +457,7 @@ async function saveTemplate() {
     if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || `HTTP ${r.status}`); }
     // apply instantly in the browser — no slow refetch
     state.template = template;
+    LS.set("od_template", template);
     applyTemplateLocally();
     closeEditor();
   } catch (err) {
