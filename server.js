@@ -52,8 +52,8 @@ const CFG = {
   reqTimeoutMs: parseInt(process.env.WC_TIMEOUT_MS || "25000", 10),
 
   // Only fetch orders created within the last N days (0 = no limit).
-  // Set this (e.g. 45) if your cancelled history is large and loads slowly.
-  sinceDays: parseInt(process.env.WC_SINCE_DAYS || "0", 10),
+  // Defaults to 60 so big cancelled histories don't cause rate-limiting.
+  sinceDays: parseInt(process.env.WC_SINCE_DAYS || "60", 10),
 
   // Shipping charge quoted in the "Partial" option
   shippingCharge: process.env.SHIPPING_CHARGE || "150",
@@ -377,7 +377,15 @@ async function getStoreOrders(fresh) {
   const allStatuses = [...new Set([...statuses, ...paidStatuses])];
   console.log(`[fetch] ${CFG.storeUrl} | unpaid: ${statuses.join(", ")} | paid: ${paidStatuses.join(", ")}`);
 
-  const results = await Promise.all(allStatuses.map(fetchStatusAll));
+  // Fetch the light, important statuses (new orders, processing) FIRST and in
+  // parallel — these are few requests and rarely rate-limited. Then fetch the
+  // heavy ones (cancelled etc.) afterwards, so even if those get throttled,
+  // your new orders have already come through.
+  const HEAVY = ["cancelled", "completed", "refunded", "failed"];
+  const light = allStatuses.filter((s) => !HEAVY.includes(s));
+  const heavy = allStatuses.filter((s) => HEAVY.includes(s));
+  const results = await Promise.all(light.map(fetchStatusAll));
+  for (const s of heavy) results.push(await fetchStatusAll(s));
 
   const allOrders = [];   // unpaid
   const paidRaw = [];     // processing / paid-on-WooCommerce
