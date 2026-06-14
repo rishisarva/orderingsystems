@@ -37,12 +37,23 @@ const CFG = {
   // Which order statuses count as "payment not done yet"
   statuses: (process.env.WC_STATUSES || "pending,on-hold").trim(),
 
+  // Statuses that mean the customer has PAID (WooCommerce sets 'processing'
+  // automatically when payment succeeds). These are surfaced to record.
+  paidStatuses: (process.env.WC_PAID_STATUSES || "processing").trim(),
+
   // Default country code used when a phone number has no international prefix.
   // 91 = India. Change to your country (44 UK, 1 US, 31 NL, ...).
   countryCode: (process.env.DEFAULT_COUNTRY_CODE || "91").replace(/\D/g, ""),
 
   // How many orders to pull per page (max 100)
   perPage: parseInt(process.env.WC_PER_PAGE || "100", 10),
+
+  // How long to wait for the store before giving up (ms)
+  reqTimeoutMs: parseInt(process.env.WC_TIMEOUT_MS || "25000", 10),
+
+  // Only fetch orders created within the last N days (0 = no limit).
+  // Set this (e.g. 45) if your cancelled history is large and loads slowly.
+  sinceDays: parseInt(process.env.WC_SINCE_DAYS || "0", 10),
 
   // Shipping charge quoted in the "Partial" option
   shippingCharge: process.env.SHIPPING_CHARGE || "150",
@@ -237,11 +248,14 @@ async function fetchOrdersPage(status, page, perPage, attempt = 0) {
     `?status=${encodeURIComponent(status)}` +
     `&per_page=${perPage}&page=${page}&orderby=date&order=desc` +
     `&_fields=${encodeURIComponent(ORDER_FIELDS)}` +
+    (CFG.sinceDays > 0
+      ? `&after=${encodeURIComponent(new Date(Date.now() - CFG.sinceDays * 86400000).toISOString())}`
+      : "") +
     `&consumer_key=${encodeURIComponent(CFG.key)}` +
     `&consumer_secret=${encodeURIComponent(CFG.secret)}`;
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 12000);
+  const timer = setTimeout(() => controller.abort(), CFG.reqTimeoutMs);
   try {
     const r = await fetch(url, {
       headers: {
@@ -354,15 +368,20 @@ app.get("/api/orders", async (req, res) => {
   }
 
   const statuses = CFG.statuses.split(",").map((s) => s.trim()).filter(Boolean);
-  console.log(`[fetch] ${CFG.storeUrl} | statuses: ${statuses.join(", ")}`);
+  const paidStatuses = CFG.paidStatuses.split(",").map((s) => s.trim()).filter(Boolean);
+  const allStatuses = [...new Set([...statuses, ...paidStatuses])];
+  console.log(`[fetch] ${CFG.storeUrl} | unpaid: ${statuses.join(", ")} | paid: ${paidStatuses.join(", ")}`);
 
-  const results = await Promise.all(statuses.map(fetchStatusAll));
+  const results = await Promise.all(allStatuses.map(fetchStatusAll));
 
-  const allOrders = [];
+  const allOrders = [];   // unpaid
+  const paidRaw = [];     // processing / paid-on-WooCommerce
   const problems = [];
   let totalSkipped = 0;
+  let succeeded = 0;
   for (const r1 of results) {
-    if (r1.orders && r1.orders.length) allOrders.push(...r1.orders);
+    const bucket = paidStatuses.includes(r1.status) ? paidRaw : allOrders;
+    if (r1.orders && r1.orders.length) bucket.push(...r1.orders);
     totalSkipped += r1.skipped || 0;
     if (r1.error) {
       problems.push({
@@ -371,16 +390,24 @@ app.get("/api/orders", async (req, res) => {
         redirectedTo: r1.redirectedTo,
         httpStatus: r1.httpStatus,
       });
+    } else {
+      succeeded++; // this status loaded fine (even if it had 0 orders)
     }
   }
-  allOrders.sort((a, b) => new Date(b.date_created) - new Date(a.date_created));
+  allOrders.sort((a, b) =>
+    new Date(b.date_created_gmt || b.date_created) - new Date(a.date_created_gmt || a.date_created));
 
-  // Everything failed -> hard error with a useful hint
-  if (allOrders.length === 0 && problems.length) {
+  // Hard error ONLY if every status failed. If even one status loaded (e.g.
+  // pending is fine but cancelled timed out), we show what we have + a warning.
+  if (succeeded === 0 && problems.length) {
     const p = problems[0];
     const blob = `${p.detail || ""}`;
     let hint;
-    if (isServerCrash(blob, p.httpStatus)) {
+    if (/abort|timeout|timed out|ETIMEDOUT/i.test(blob)) {
+      hint = "The store took too long to respond (timeout). Your cancelled-order " +
+             "history is probably large — set WC_SINCE_DAYS (e.g. 45) to pull only " +
+             "recent orders, and/or upgrade Render so the instance isn't sleeping.";
+    } else if (isServerCrash(blob, p.httpStatus)) {
       hint = "Your WordPress site threw a 500 error while building the order list. " +
              "This is a bug on the site — usually one order points to a payment gateway " +
              "that's been removed. Check the site's PHP error log to find the plugin.";
@@ -418,6 +445,7 @@ app.get("/api/orders", async (req, res) => {
     template: tpl,
     tokens: TOKENS,
     orders: active,
+    paidOrders: paidRaw.map(shapeOrder),   // processing = paid on WooCommerce
     done,
     skipped: totalSkipped || undefined,
     problems: problems.length
