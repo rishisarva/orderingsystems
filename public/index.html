@@ -140,6 +140,17 @@
         </div>
 
         <div class="section">
+          <div class="section-title">Expenses</div>
+          <div class="adspend-row">
+            <input type="date" id="expDate" />
+            <input type="number" id="expAmount" placeholder="Amount (₹)" />
+            <input type="text" id="expNote" placeholder="What for? (optional)" />
+            <button class="btn ghost" id="expSaveBtn">Add expense</button>
+          </div>
+          <div class="mini-list" id="expList"></div>
+        </div>
+
+        <div class="section">
           <div class="section-title">Paid orders <span class="muted" id="salesCount"></span></div>
           <div class="sales-list" id="salesList"></div>
           <div class="empty-inline" id="salesEmpty">No paid orders logged yet. Tap “Add paid order”.</div>
