@@ -232,7 +232,7 @@ function shapeOrder(o) {
 const ORDER_FIELDS =
   "id,number,status,currency,currency_symbol,total,discount_total,date_created,date_created_gmt,billing,line_items";
 const MAX_PAGES = parseInt(process.env.WC_MAX_PAGES || "20", 10); // safety cap
-const ISO_TTL_MS = 60000; // cache crash-prone statuses for 60s
+const ISO_TTL_MS = 300000; // cache crash-prone statuses for 5 min (they rarely change)
 const isoCache = {};      // status -> { at, orders, skipped }
 
 function isServerCrash(text, httpStatus) {
@@ -269,7 +269,9 @@ async function fetchOrdersPage(status, page, perPage, attempt = 0) {
     if (!r.ok) {
       // Transient server hiccup -> back off and retry before reporting
       if ([429, 502, 503, 504].includes(r.status) && attempt < 2) {
-        await new Promise((res) => setTimeout(res, 350 * (attempt + 1)));
+        // 429 = rate limited: wait noticeably longer before retrying
+        const wait = r.status === 429 ? 1500 * (attempt + 1) : 350 * (attempt + 1);
+        await new Promise((res) => setTimeout(res, wait));
         return fetchOrdersPage(status, page, perPage, attempt + 1);
       }
       const body = await r.text();
@@ -321,13 +323,14 @@ async function fetchStatusAll(status) {
     }
 
     if (res.crash) {
-      // Rescue this page order-by-order (in small parallel batches)
+      // Rescue this page order-by-order, gently (small batches + a short pause)
+      // so we don't trip the store's rate limiter. Bounded by a request cap.
       isolatedAny = true;
       const start = (page - 1) * PAGE + 1;
       const positions = Array.from({ length: PAGE }, (_, i) => start + i);
-      let reachedEnd = false;
-      for (let i = 0; i < positions.length && !reachedEnd; i += 5) {
-        const batch = positions.slice(i, i + 5);
+      let reachedEnd = false, rateLimited = false;
+      for (let i = 0; i < positions.length && !reachedEnd && !rateLimited; i += 3) {
+        const batch = positions.slice(i, i + 3);
         const settled = await Promise.all(batch.map((k) => fetchOrdersPage(status, k, 1)));
         for (const one of settled) {
           if (one.ok) {
@@ -335,13 +338,16 @@ async function fetchStatusAll(status) {
             else all.push(...one.orders);
           } else if (one.crash) {
             skipped++; // the poisoned order — skip just this one
-          } else {
-            // transient network error after retries: leave this one out of
-            // THIS poll (the sticky front-end keeps it visible) and continue
+          } else if (one.httpStatus === 429) {
+            rateLimited = true; // back off entirely; serve what we have + cache
           }
+          // other transient errors: skip this one, sticky front-end keeps it
+        }
+        if (i + 3 < positions.length && !reachedEnd && !rateLimited) {
+          await new Promise((r) => setTimeout(r, 200)); // breathe between batches
         }
       }
-      if (reachedEnd) break;
+      if (reachedEnd || rateLimited) break;
       page++;
       continue;
     }
@@ -358,15 +364,14 @@ async function fetchStatusAll(status) {
   return { status, orders: all, skipped };
 }
 
-// ---- API: return unpaid orders --------------------------------------------
-app.get("/api/orders", async (req, res) => {
-  if (!CFG.storeUrl || !CFG.key || !CFG.secret) {
-    return res.status(500).json({
-      error: "Server is missing WooCommerce credentials. Set WC_STORE_URL, " +
-             "WC_CONSUMER_KEY and WC_CONSUMER_SECRET.",
-    });
-  }
+// Cache the whole store fetch so client polling never hammers the store.
+let storeCache = { at: 0, data: null };
+const FULL_TTL = parseInt(process.env.WC_CACHE_MS || "45000", 10);
 
+async function getStoreOrders(fresh) {
+  if (!fresh && storeCache.data && Date.now() - storeCache.at < FULL_TTL) {
+    return { ...storeCache.data, fromCache: true };
+  }
   const statuses = CFG.statuses.split(",").map((s) => s.trim()).filter(Boolean);
   const paidStatuses = CFG.paidStatuses.split(",").map((s) => s.trim()).filter(Boolean);
   const allStatuses = [...new Set([...statuses, ...paidStatuses])];
@@ -391,15 +396,37 @@ app.get("/api/orders", async (req, res) => {
         httpStatus: r1.httpStatus,
       });
     } else {
-      succeeded++; // this status loaded fine (even if it had 0 orders)
+      succeeded++;
     }
   }
+
+  const data = { allOrders, paidRaw, problems, totalSkipped, succeeded };
+  if (succeeded > 0) {
+    storeCache = { at: Date.now(), data };       // remember the last good fetch
+    return data;
+  }
+  // Total failure (e.g. rate-limited): serve the last good data if we have it
+  if (storeCache.data) return { ...storeCache.data, stale: true, problems };
+  return data;
+}
+
+// ---- API: return unpaid orders --------------------------------------------
+app.get("/api/orders", async (req, res) => {
+  if (!CFG.storeUrl || !CFG.key || !CFG.secret) {
+    return res.status(500).json({
+      error: "Server is missing WooCommerce credentials. Set WC_STORE_URL, " +
+             "WC_CONSUMER_KEY and WC_CONSUMER_SECRET.",
+    });
+  }
+
+  const { allOrders, paidRaw, problems, totalSkipped, succeeded, fromCache, stale } =
+    await getStoreOrders(req.query.fresh === "1");
   allOrders.sort((a, b) =>
     new Date(b.date_created_gmt || b.date_created) - new Date(a.date_created_gmt || a.date_created));
 
-  // Hard error ONLY if every status failed. If even one status loaded (e.g.
-  // pending is fine but cancelled timed out), we show what we have + a warning.
-  if (succeeded === 0 && problems.length) {
+  // Hard error ONLY if every status failed AND we have nothing to show
+  // (no cached/stale data either).
+  if (succeeded === 0 && problems.length && !allOrders.length && !paidRaw.length) {
     const p = problems[0];
     const blob = `${p.detail || ""}`;
     let hint;
@@ -447,6 +474,8 @@ app.get("/api/orders", async (req, res) => {
     orders: active,
     paidOrders: paidRaw.map(shapeOrder),   // processing = paid on WooCommerce
     done,
+    stale: stale || undefined,
+    cached: fromCache || undefined,
     skipped: totalSkipped || undefined,
     problems: problems.length
       ? problems.map((p) => ({ status: p.status, detail: p.detail }))
