@@ -246,14 +246,13 @@ function updateCounts() {
 // ---------- tabs ----------
 function setTab(tab) {
   state.tab = tab;
-  const tabs = { active: "tabActive", done: "tabDone", money: "tabMoney", whatsapp: "tabWhatsapp" };
-  const views = { active: "activeView", done: "doneView", money: "moneyView", whatsapp: "whatsappView" };
+  const tabs = { active: "tabActive", done: "tabDone", dashboard: "tabDashboard" };
+  const views = { active: "activeView", done: "doneView", dashboard: "dashboardView" };
   for (const [name, id] of Object.entries(tabs)) $(id).classList.toggle("active", name === tab);
   for (const [name, id] of Object.entries(views)) $(id).classList.toggle("hidden", name !== tab);
   $("toolbar").classList.toggle("hidden", tab !== "active");
   if (tab === "done") renderDone();
-  if (tab === "money" && window.Business) window.Business.renderMoney();
-  if (tab === "whatsapp" && window.Business) window.Business.renderWhatsapp();
+  if (tab === "dashboard" && window.Business) window.Business.renderDashboard();
 }
 
 // Let the business module read current orders (active + done) for its picker
@@ -339,6 +338,10 @@ async function load(manual) {
       }
     }
     state.orders = [...state.orderMap.values()];
+
+    // hand the processing/paid orders to the dashboard module
+    state.paidOrders = (data.paidOrders || []).filter((o) => !state.paid.has(o.id));
+    if (window.Business) window.Business.setPaidOrders(state.paidOrders);
 
     renderActive();
     if (state.tab === "done") renderDone();
@@ -483,8 +486,7 @@ async function saveTemplate() {
 // ---------- wiring ----------
 $("tabActive").addEventListener("click", () => setTab("active"));
 $("tabDone").addEventListener("click", () => setTab("done"));
-$("tabMoney").addEventListener("click", () => setTab("money"));
-$("tabWhatsapp").addEventListener("click", () => setTab("whatsapp"));
+$("tabDashboard").addEventListener("click", () => setTab("dashboard"));
 $("refreshBtn").addEventListener("click", () => load(true));
 $("editBtn").addEventListener("click", openEditor);
 $("closeEditor").addEventListener("click", closeEditor);
@@ -525,6 +527,8 @@ load();
 // ---- Bridge for the Money/WhatsApp module (business.js) -------------------
 window.App = {
   getActiveOrders: () => state.orders,
+  getPaidOrders: () => state.paidOrders || [],
+  getRecordableOrders: () => [...(state.orders || []), ...(state.paidOrders || [])],
   getShipping: () => state.shipping || "150",
   // Record an order as paid: remove it from Active (and Done), persist
   markOrderPaid: (id) => {
