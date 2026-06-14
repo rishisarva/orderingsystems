@@ -55,21 +55,27 @@ const CFG = {
 };
 
 // Tokens the user can use in their message; shown in the editor.
-const TOKENS = ["{name}", "{order}", "{total}", "{shipping}", "{upi}", "{brand}"];
+const TOKENS = ["{name}", "{order}", "{total}", "{shipping}", "{delivery}", "{jersey}", "{discount}", "{upi}", "{brand}"];
 
 // The starting message if none has been saved yet (concise, simple).
 const DEFAULT_TEMPLATE =
 `Hi {name}! 👋
 Your order {order} ({total}) is still pending payment — let's get it shipped to you!
 
-Pick a payment mode:
-1. Partial — pay just {shipping} shipping now (not advance), rest on delivery.
-2. Prepaid — pay the full {total} now.
+Choose how you'd like to pay:
 
-Pay on this UPI: {upi}
-Once you've paid, reply 1 or 2 so we know which mode you used — we'll confirm and dispatch your order 📦
+1) PARTIAL
+• Pay only {shipping} now — this is the shipping charge, NOT an advance.
+• Then pay {delivery} on delivery (cash).
+• Why {delivery}? That's just your jersey amount (after discount, if any). Shipping is already covered by the {shipping} you pay now, so there's nothing extra to pay at delivery.
 
-Facing any issue? Just type "problem" and we'll sort it out.
+2) PREPAID
+• Pay the full {total} now and pay nothing on delivery.
+
+Pay here (UPI): {upi}
+After paying, reply 1 or 2 so we know which option you chose — we'll confirm and ship it out 📦
+
+Any issue? Just type "problem" and we'll help you.
 {brand}`;
 
 // ---- Persistence helpers ---------------------------------------------------
@@ -137,6 +143,9 @@ function renderTemplate(tpl, order) {
     "{order}": "#" + order.number,
     "{total}": sym + order.total,
     "{shipping}": sym + CFG.shippingCharge,
+    "{delivery}": sym + order.delivery,
+    "{jersey}": sym + order.jersey,
+    "{discount}": sym + order.discount,
     "{upi}": CFG.upi || "(add your UPI ID)",
     "{brand}": CFG.brand,
   };
@@ -169,6 +178,24 @@ function shapeOrder(o) {
     .map((li) => `${li.quantity}× ${li.name}`)
     .join(", ");
 
+  // ON-DELIVERY amount = product/jersey price − discount.
+  // We use ONLY the product lines here — never the order total — so shipping
+  // and tax are never included. (Shipping is the flat amount paid upfront in
+  // the Partial option.) This subtracts the discount whether it was applied
+  // as a coupon (discount_total) or as a per-line/sale discount (line totals).
+  const grossProduct = (o.line_items || [])
+    .reduce((s, li) => s + (parseFloat(li.subtotal) || 0), 0);   // product price, before discount
+  const lineNet = (o.line_items || [])
+    .reduce((s, li) => s + (parseFloat(li.total) || 0), 0);      // product price, after line discounts
+  const couponDiscount = parseFloat(o.discount_total) || 0;
+
+  const deliveryAmt = Math.max(
+    0,
+    Math.min(lineNet || grossProduct, grossProduct - couponDiscount)
+  );
+  const jerseyAmt = grossProduct || lineNet;          // jersey/product amount (before discount)
+  const discountAmt = Math.max(0, jerseyAmt - deliveryAmt); // the discount actually taken off
+
   return {
     id: o.id,
     number: o.number || String(o.id),
@@ -177,17 +204,22 @@ function shapeOrder(o) {
     phone,                       // normalised, digits only
     rawPhone: o.billing?.phone || "",
     total: o.total,
+    jersey: jerseyAmt.toFixed(2),     // jersey amount (before discount)
+    discount: discountAmt.toFixed(2), // discount on the order
+    delivery: deliveryAmt.toFixed(2), // amount to collect on delivery
     currencySymbol: sym,
     status: o.status,
     items,
     itemCount: (o.line_items || []).reduce((n, li) => n + (li.quantity || 0), 0),
-    dateCreated: o.date_created,
+    // Absolute UTC instant (…Z) so the browser shows the correct "X ago"
+    // regardless of the store's or server's timezone. Falls back to local.
+    dateCreated: o.date_created_gmt ? o.date_created_gmt + "Z" : o.date_created,
   };
 }
 
 // ---- Order fetching (pagination + crash isolation + caching) ---------------
 const ORDER_FIELDS =
-  "id,number,status,currency,currency_symbol,total,date_created,billing,line_items";
+  "id,number,status,currency,currency_symbol,total,discount_total,date_created,date_created_gmt,billing,line_items";
 const MAX_PAGES = parseInt(process.env.WC_MAX_PAGES || "20", 10); // safety cap
 const ISO_TTL_MS = 60000; // cache crash-prone statuses for 60s
 const isoCache = {};      // status -> { at, orders, skipped }
