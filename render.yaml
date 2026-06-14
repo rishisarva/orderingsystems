@@ -1,4 +1,4 @@
-# Render Blueprint — deploy with one click after connecting your repo.
+# Render Blueprint — deploy after connecting your repo.
 services:
   - type: web
     name: woo-wa-radar
@@ -13,11 +13,15 @@ services:
         sync: false
       - key: WC_CONSUMER_SECRET
         sync: false
+      - key: UPI_ID
+        sync: false
       - key: WC_STATUSES
-        value: pending,on-hold
+        value: pending,on-hold,cancelled
       - key: DEFAULT_COUNTRY_CODE
         value: "91"
       - key: SHIPPING_CHARGE
         value: "150"
+      - key: WC_MAX_PAGES
+        value: "20"
       - key: BRAND_NAME
-        value: Your Store
+        value: VisionsJersey
