@@ -26,6 +26,8 @@
       <button class="tab" data-tab="done" id="tabDone">
         Done <span class="tabcount" id="doneCount">0</span>
       </button>
+      <button class="tab" data-tab="money" id="tabMoney">Money</button>
+      <button class="tab" data-tab="whatsapp" id="tabWhatsapp">WhatsApp</button>
     </div>
 
     <div class="appbar-actions">
@@ -89,6 +91,96 @@
     </div>
   </main>
 
+  <!-- ===================== MONEY / BUSINESS ===================== -->
+  <main id="moneyView" class="hidden">
+    <div class="page">
+      <div class="page-head">
+        <div class="seg" id="moneySeg">
+          <button class="seg-item" data-win="today">Today</button>
+          <button class="seg-item active" data-win="week">This week</button>
+          <button class="seg-item" data-win="month">This month</button>
+          <button class="seg-item" data-win="all">All time</button>
+        </div>
+        <button class="btn primary" id="addPaidBtn">+ Add paid order</button>
+      </div>
+
+      <div class="stats" id="moneyStats"></div>
+
+      <div class="section">
+        <div class="section-title">Split the money <span class="muted" id="ratioWarn"></span></div>
+        <div class="accounts" id="accounts"></div>
+        <div class="ratio-row">
+          <label>Savings % <input type="number" id="rSavings" min="0" max="100" /></label>
+          <label>Expense % <input type="number" id="rExpense" min="0" max="100" /></label>
+          <label>Ad account % <input type="number" id="rAd" min="0" max="100" /></label>
+          <span class="ratio-sum" id="ratioSum"></span>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Ad spend</div>
+        <div class="adspend-row">
+          <input type="date" id="adDate" />
+          <input type="number" id="adAmount" placeholder="Amount spent (₹)" />
+          <button class="btn ghost" id="adSaveBtn">Save spend</button>
+        </div>
+        <div class="mini-list" id="adList"></div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Paid orders <span class="muted" id="salesCount"></span></div>
+        <div class="sales-list" id="salesList"></div>
+        <div class="empty-inline" id="salesEmpty">No paid orders logged yet. Tap “Add paid order”.</div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ===================== WHATSAPP TRACKER ===================== -->
+  <main id="whatsappView" class="hidden">
+    <div class="page">
+      <div class="page-head"><div class="section-title" style="margin:0">WhatsApp join tracker</div></div>
+      <p class="muted small">Log how many people were in your group before and after a day's ads to see what each new join costs.</p>
+      <div class="wa-form">
+        <label>Date <input type="date" id="waDate" /></label>
+        <label>Joins before <input type="number" id="waBefore" placeholder="e.g. 564" /></label>
+        <label>Joins after <input type="number" id="waAfter" placeholder="e.g. 612" /></label>
+        <label>Ad spend ₹ <input type="number" id="waSpend" placeholder="e.g. 800" /></label>
+        <button class="btn primary" id="waAddBtn">Add</button>
+      </div>
+      <div class="stats" id="waStats"></div>
+      <div class="sales-list" id="waList"></div>
+      <div class="empty-inline" id="waEmpty">No entries yet.</div>
+    </div>
+  </main>
+
+  <!-- Add-paid-order modal -->
+  <div class="overlay hidden" id="paidOverlay"></div>
+  <div class="modal hidden" id="paidModal">
+    <div class="modal-head">
+      <h2 id="paidTitle">Add a paid order</h2>
+      <button class="iconbtn" id="paidClose">✕</button>
+    </div>
+    <div id="paidStep1">
+      <input class="search" id="paidSearch" type="search" placeholder="Search by name or order #…" style="width:100%" />
+      <div class="pick-list" id="paidPickList"></div>
+    </div>
+    <div id="paidStep2" class="hidden">
+      <div class="picked" id="paidPicked"></div>
+      <div class="mode-row">
+        <label class="mode-opt"><input type="radio" name="paidMode" value="prepaid" checked /> <span>Prepaid (full amount)</span></label>
+        <label class="mode-opt"><input type="radio" name="paidMode" value="partial" /> <span>Partial (₹<span id="shipNote">150</span> now, rest on delivery)</span></label>
+      </div>
+      <label class="field">Jersey cost (what it cost you) ₹
+        <input type="number" id="paidCost" placeholder="e.g. 300" />
+      </label>
+      <div class="profit-preview" id="profitPreview"></div>
+      <div class="modal-foot">
+        <button class="btn ghost" id="paidBack">Back</button>
+        <button class="btn primary" id="paidSave">Save paid order</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Slide-over message editor -->
   <div class="overlay hidden" id="overlay"></div>
   <aside class="editor hidden" id="editor" aria-label="Edit message">
@@ -108,5 +200,6 @@
   </aside>
 
   <script src="app.js"></script>
+  <script src="business.js"></script>
 </body>
 </html>

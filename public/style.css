@@ -287,3 +287,80 @@ input[type="date"] {
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+/* ===================== Money / WhatsApp pages ===================== */
+.page { max-width: 1100px; margin: 0 auto; padding: 20px 22px; }
+.page-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-bottom: 16px; }
+.small { font-size: 12px; }
+
+.stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.stat-card { background: var(--surface); border: 1px solid var(--line-soft); border-radius: 13px; padding: 14px 15px; }
+.stat-label { font-size: 11px; letter-spacing: .4px; text-transform: uppercase; color: var(--faint); font-weight: 600; }
+.stat-val { font-family: var(--disp); font-size: 24px; font-weight: 600; margin-top: 4px; letter-spacing: -.4px; }
+.stat-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+.section { margin-top: 22px; }
+.section-title { font-family: var(--disp); font-size: 15px; font-weight: 600; margin-bottom: 11px; }
+
+.accounts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.account { border: 1px solid var(--line-soft); border-radius: 13px; padding: 15px; background: var(--surface); position: relative; overflow: hidden; }
+.account::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; }
+.a-save::before { background: var(--wa); } .a-exp::before { background: var(--amber); } .a-ad::before { background: var(--blue); }
+.acc-pct { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.acc-label { font-size: 13px; font-weight: 600; margin: 2px 0 6px; }
+.acc-val { font-family: var(--disp); font-size: 22px; font-weight: 600; }
+.ratio-row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin-top: 12px; font-size: 12.5px; color: var(--muted); }
+.ratio-row label { display: flex; align-items: center; gap: 6px; }
+.ratio-row input { width: 64px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; color: var(--ink); padding: 6px 8px; font-family: var(--mono); }
+.ratio-sum { font-family: var(--mono); }
+
+.adspend-row { display: flex; gap: 9px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+.adspend-row input { background: var(--surface); border: 1px solid var(--line); border-radius: 9px; color: var(--ink); padding: 8px 11px; font-size: 13px; }
+.mini-list, .mini-row { font-size: 12.5px; }
+.mini-row { display: flex; gap: 14px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line-soft); }
+.mini-row span:first-child { font-family: var(--mono); color: var(--muted); min-width: 92px; }
+.mini-row span:nth-child(2) { font-family: var(--mono); }
+.mini-row .linkbtn { margin-left: auto; }
+
+.sales-list { display: flex; flex-direction: column; gap: 9px; }
+.sale-row { background: var(--surface); border: 1px solid var(--line-soft); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; }
+.sale-main { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.sale-main .name { font-size: 14px; font-weight: 600; }
+.sale-nums { display: flex; gap: 14px; flex-wrap: wrap; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.sale-nums .profit { color: var(--wa); }
+.sale-nums .pending { color: var(--amber); }
+.sale-foot { display: flex; gap: 14px; align-items: center; }
+.badge { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; padding: 2px 8px; border-radius: 999px; }
+.b-prepaid { background: rgba(37,211,102,.14); color: var(--wa); }
+.b-partial { background: rgba(240,181,74,.14); color: var(--amber); }
+.empty-inline { color: var(--muted); font-size: 13px; padding: 16px 2px; }
+
+/* modal */
+.modal { position: fixed; z-index: 50; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: min(520px, 94vw); max-height: 88vh; overflow: auto;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 18px;
+  box-shadow: 0 30px 70px rgba(0,0,0,.5); display: flex; flex-direction: column; gap: 13px; }
+.modal-head { display: flex; align-items: center; justify-content: space-between; }
+.modal-head h2 { font-family: var(--disp); font-size: 18px; margin: 0; }
+.modal-foot { display: flex; justify-content: flex-end; gap: 9px; margin-top: 6px; }
+.pick-list { max-height: 44vh; overflow: auto; display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.pick-item { border: 1px solid var(--line-soft); border-radius: 10px; padding: 10px 12px; cursor: pointer; transition: .12s; }
+.pick-item:hover { border-color: var(--wa); background: var(--surface-2); }
+.picked { background: var(--bg); border: 1px solid var(--line-soft); border-radius: 11px; padding: 12px; }
+.mode-row { display: flex; flex-direction: column; gap: 9px; }
+.mode-opt { display: flex; align-items: center; gap: 9px; font-size: 13.5px; cursor: pointer; }
+.field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); }
+.field input { background: var(--bg); border: 1px solid var(--line); border-radius: 9px; color: var(--ink); padding: 9px 11px; font-size: 14px; }
+.profit-preview { background: var(--bg); border: 1px solid var(--line-soft); border-radius: 11px; padding: 11px 13px; display: flex; flex-direction: column; gap: 5px; font-size: 13px; }
+.pp-row { display: flex; justify-content: space-between; }
+.pp-row.pp-profit { border-top: 1px solid var(--line); padding-top: 6px; margin-top: 1px; font-size: 15px; }
+.pp-row.pp-profit b { color: var(--wa); font-family: var(--disp); }
+
+.wa-form { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin: 12px 0 16px; }
+.wa-form label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--muted); }
+.wa-form input { background: var(--surface); border: 1px solid var(--line); border-radius: 9px; color: var(--ink); padding: 8px 10px; font-size: 13px; width: 120px; }
+
+@media (max-width: 620px) {
+  .accounts { grid-template-columns: 1fr; }
+  .wa-form input { width: 100%; }
+}
