@@ -12,10 +12,11 @@
   const store = {
     sales: LSget("od_sales", []),
     ads: LSget("od_ads", []),
+    expenses: LSget("od_expenses", []),
     wa: LSget("od_wa", []),
     ratio: LSget("od_ratio", { savings: 30, expense: 20, ad: 50 }),
   };
-  const save = () => { LSset("od_sales", store.sales); LSset("od_ads", store.ads); LSset("od_wa", store.wa); LSset("od_ratio", store.ratio); };
+  const save = () => { LSset("od_sales", store.sales); LSset("od_ads", store.ads); LSset("od_expenses", store.expenses); LSset("od_wa", store.wa); LSset("od_ratio", store.ratio); };
 
   const num = (x) => parseFloat(x) || 0;
   const money = (n) => "₹" + (Math.round(n * 100) / 100).toLocaleString("en-IN", { maximumFractionDigits: 2 });
@@ -54,14 +55,18 @@
       </div>`).join("");
 
     const sales = store.sales.filter((s) => inWindow(s.completedAt));
-    const realSales = sales.filter(realized);
     const ads = store.ads.filter((a) => inWindow(a.date + "T12:00:00"));
+    const expenses = store.expenses.filter((e) => inWindow(e.date + "T12:00:00"));
 
-    const revenue = realSales.reduce((s, x) => s + num(x.revenue), 0);
-    const cogs = realSales.reduce((s, x) => s + num(x.cost), 0);
-    const profit = revenue - cogs;
+    // Profit counts as soon as a sale is logged. The ₹150 shipping on a partial
+    // is NEVER part of revenue/profit (revenue = jersey − discount only).
+    const revenue = sales.reduce((s, x) => s + num(x.revenue), 0);
+    const cogs = sales.reduce((s, x) => s + num(x.cost), 0);
+    const grossProfit = revenue - cogs;
+    const expenseTotal = expenses.reduce((s, x) => s + num(x.amount), 0);
+    const netProfit = grossProfit - expenseTotal;
     const adSpend = ads.reduce((s, x) => s + num(x.amount), 0);
-    const orders = realSales.length;
+    const orders = sales.length;
     const roas = adSpend > 0 ? revenue / adSpend : 0;
     const cpo = orders > 0 ? adSpend / orders : 0;
     const pendingPartials = store.sales.filter((s) => s.mode === "partial" && !s.deliveryPaid);
@@ -70,21 +75,24 @@
     const card = (label, val, sub) =>
       `<div class="stat-card"><div class="stat-label">${label}</div><div class="stat-val">${val}</div>${sub ? `<div class="stat-sub">${sub}</div>` : ""}</div>`;
     $("moneyStats").innerHTML =
-      card("Orders closed", orders, winLabel() + " · paid in full") +
+      card("Orders closed", orders, winLabel()) +
       card("Revenue", money(revenue), "jersey, after discount") +
       card("Jersey cost", money(cogs), "what stock cost you") +
-      card("Profit", money(profit), "revenue − cost") +
+      card("Gross profit", money(grossProfit), "revenue − jersey cost") +
+      card("Expenses", money(expenseTotal), winLabel()) +
+      card("Net profit", money(netProfit), "gross profit − expenses") +
       card("Ad spend", money(adSpend), winLabel()) +
-      card("Profit after ads", money(profit - adSpend), profit - adSpend < 0 ? "running at a loss" : "") +
+      card("Profit after ads", money(netProfit - adSpend), netProfit - adSpend < 0 ? "running at a loss" : "") +
       card("ROAS", adSpend > 0 ? roas.toFixed(2) + "×" : "—", "revenue ÷ ad spend") +
       card("Cost / order", adSpend > 0 && orders ? money(cpo) : "—", "ad spend ÷ orders") +
       (pendingAmt > 0 ? card("Awaiting delivery", money(pendingAmt), pendingPartials.length + " partial order(s)") : "");
 
-    // split (of profit)
+    // split — applied to NET profit (what's actually left to allocate)
+    const profit = netProfit;
     const r = store.ratio, sum = num(r.savings) + num(r.expense) + num(r.ad);
     $("rSavings").value = r.savings; $("rExpense").value = r.expense; $("rAd").value = r.ad;
     $("ratioSum").textContent = "Total: " + sum + "%";
-    $("ratioWarn").textContent = sum === 100 ? "" : "(should add up to 100%)";
+    $("ratioWarn").textContent = (sum === 100 ? "" : "(should add up to 100%) ") + "— split of net profit";
     const acc = (label, pct, cls) =>
       `<div class="account ${cls}"><div class="acc-pct">${pct}%</div><div class="acc-label">${label}</div><div class="acc-val">${money(profit * pct / 100)}</div></div>`;
     $("accounts").innerHTML = acc("Savings", num(r.savings), "a-save") + acc("Expense", num(r.expense), "a-exp") + acc("Ad account", num(r.ad), "a-ad");
@@ -93,6 +101,11 @@
     $("adList").innerHTML = store.ads.slice().sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8)
       .map((a) => `<div class="mini-row"><span>${a.date}</span><span>${money(num(a.amount))}</span><button class="linkbtn" data-del-ad="${a.id}">remove</button></div>`)
       .join("") || `<div class="muted small">No ad spend logged yet.</div>`;
+
+    // expense list
+    $("expList").innerHTML = store.expenses.slice().sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8)
+      .map((e) => `<div class="mini-row"><span>${e.date}</span><span>${money(num(e.amount))}</span><span class="muted" style="flex:1">${e.note || ""}</span><button class="linkbtn" data-del-exp="${e.id}">remove</button></div>`)
+      .join("") || `<div class="muted small">No expenses logged yet.</div>`;
 
     // sales list
     const list = sales.sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt));
@@ -106,9 +119,10 @@
           ${s.mode === "partial" && !s.deliveryPaid ? `<span class="badge b-partial">awaiting delivery</span>` : ""}
         </div>
         <div class="sale-nums">
-          ${realized(s)
-            ? `<span>rev ${money(num(s.revenue))}</span><span>cost ${money(num(s.cost))}</span><span class="profit">profit ${money(num(s.profit))}</span>`
-            : `<span class="muted">₹150 shipping collected (not profit)</span><span class="pending">to collect ${money(num(s.pending))}</span>`}
+          <span>rev ${money(num(s.revenue))}</span>
+          <span>cost ${money(num(s.cost))}</span>
+          <span class="profit">profit ${money(num(s.profit))}</span>
+          ${s.mode === "partial" && !s.deliveryPaid ? `<span class="pending">+₹${num(s.shipping || 150)} shipping in · to collect ${money(num(s.pending))}</span>` : ""}
         </div>
         <div class="sale-foot">
           <span class="muted small">${new Date(s.completedAt).toLocaleString()}</span>
@@ -237,6 +251,15 @@
     store.ads.unshift({ id: Date.now(), date, amount }); save(); $("adAmount").value = ""; renderMoney();
   });
   $("adList").addEventListener("click", (e) => { const id = e.target.getAttribute("data-del-ad"); if (!id) return; store.ads = store.ads.filter((a) => String(a.id) !== String(id)); save(); renderMoney(); });
+
+  $("expDate").value = todayStr();
+  $("expSaveBtn").addEventListener("click", () => {
+    const date = $("expDate").value || todayStr(), amount = num($("expAmount").value), note = $("expNote").value.trim();
+    if (!amount) return;
+    store.expenses.unshift({ id: Date.now(), date, amount, note }); save();
+    $("expAmount").value = ""; $("expNote").value = ""; renderMoney();
+  });
+  $("expList").addEventListener("click", (e) => { const id = e.target.getAttribute("data-del-exp"); if (!id) return; store.expenses = store.expenses.filter((x) => String(x.id) !== String(id)); save(); renderMoney(); });
   $("salesList").addEventListener("click", (e) => {
     const collect = e.target.getAttribute("data-collect"), undo = e.target.getAttribute("data-undo-sale");
     if (collect) { const s = store.sales.find((x) => String(x.id) === String(collect)); if (s) { s.deliveryPaid = true; save(); renderMoney(); } }
