@@ -36,14 +36,16 @@
   }
   const winLabel = () => ({ today: "today", week: "last 7 days", month: "last 30 days", all: "all time" }[win]);
   const recordedIds = () => new Set(store.sales.map((s) => String(s.id)));
+  let dismissed = new Set(LSget("od_dismissed", []));
+  const saveDismissed = () => LSset("od_dismissed", [...dismissed]);
 
   function renderDashboard() { sub === "whatsapp" ? renderWhatsapp() : renderMoney(); }
 
   // ---- MONEY ---------------------------------------------------------------
   function renderMoney() {
-    // "Record these" queue — processing orders not yet logged
+    // "Record these" queue — processing orders not yet logged or dismissed
     const done = recordedIds();
-    const toRecord = (window.App.getPaidOrders() || []).filter((o) => !done.has(String(o.id)));
+    const toRecord = (window.App.getPaidOrders() || []).filter((o) => !done.has(String(o.id)) && !dismissed.has(String(o.id)));
     $("toRecordSection").style.display = toRecord.length ? "" : "none";
     $("toRecordCount").textContent = toRecord.length ? `(${toRecord.length})` : "";
     $("toRecordList").innerHTML = toRecord.map((o) => `
@@ -51,7 +53,10 @@
         <div class="sale-main"><span class="name">${o.customerName}</span> <span class="ordno">#${o.number}</span>
           <span class="badge b-prepaid">paid · ${o.status}</span></div>
         <div class="sale-nums"><span>total ${o.currencySymbol}${o.total}</span><span>jersey ${o.currencySymbol}${o.delivery}</span></div>
-        <div class="sale-foot"><button class="btn primary" data-record="${o.id}" style="padding:6px 12px">Record this</button></div>
+        <div class="sale-foot">
+          <button class="btn primary" data-record="${o.id}" style="padding:6px 12px">Record this</button>
+          <button class="linkbtn" data-dismiss="${o.id}">dismiss</button>
+        </div>
       </div>`).join("");
 
     const sales = store.sales.filter((s) => inWindow(s.completedAt));
@@ -102,10 +107,15 @@
       .map((a) => `<div class="mini-row"><span>${a.date}</span><span>${money(num(a.amount))}</span><button class="linkbtn" data-del-ad="${a.id}">remove</button></div>`)
       .join("") || `<div class="muted small">No ad spend logged yet.</div>`;
 
-    // expense list
-    $("expList").innerHTML = store.expenses.slice().sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8)
-      .map((e) => `<div class="mini-row"><span>${e.date}</span><span>${money(num(e.amount))}</span><span class="muted" style="flex:1">${e.note || ""}</span><button class="linkbtn" data-del-exp="${e.id}">remove</button></div>`)
-      .join("") || `<div class="muted small">No expenses logged yet.</div>`;
+    // expense list (with category)
+    const byCat = {};
+    for (const e of expenses) byCat[e.category || "Other"] = (byCat[e.category || "Other"] || 0) + num(e.amount);
+    const catSummary = Object.entries(byCat).map(([c, v]) => `${c}: ${money(v)}`).join("  ·  ");
+    $("expList").innerHTML =
+      (catSummary ? `<div class="muted small" style="margin-bottom:6px">${catSummary}</div>` : "") +
+      (store.expenses.slice().sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10)
+        .map((e) => `<div class="mini-row"><span>${e.date}</span><span>${money(num(e.amount))}</span><span class="muted" style="flex:1">${e.category || ""}</span><button class="linkbtn" data-del-exp="${e.id}">remove</button></div>`)
+        .join("") || `<div class="muted small">No expenses logged yet.</div>`);
 
     // sales list
     const list = sales.sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt));
@@ -239,7 +249,6 @@
   $("paidCost").addEventListener("input", updateProfitPreview);
   document.querySelectorAll('input[name="paidMode"]').forEach((r) => r.addEventListener("change", updateProfitPreview));
   $("paidSave").addEventListener("click", savePaid);
-  $("toRecordList").addEventListener("click", (e) => { const id = e.target.getAttribute("data-record"); if (id) recordOrder(id); });
 
   ["rSavings", "rExpense", "rAd"].forEach((id) => $(id).addEventListener("input", () => {
     store.ratio = { savings: num($("rSavings").value), expense: num($("rExpense").value), ad: num($("rAd").value) }; save(); renderMoney();
@@ -254,12 +263,19 @@
 
   $("expDate").value = todayStr();
   $("expSaveBtn").addEventListener("click", () => {
-    const date = $("expDate").value || todayStr(), amount = num($("expAmount").value), note = $("expNote").value.trim();
+    const date = $("expDate").value || todayStr(), amount = num($("expAmount").value), category = $("expCat").value;
     if (!amount) return;
-    store.expenses.unshift({ id: Date.now(), date, amount, note }); save();
-    $("expAmount").value = ""; $("expNote").value = ""; renderMoney();
+    store.expenses.unshift({ id: Date.now(), date, amount, category }); save();
+    $("expAmount").value = ""; renderMoney();
   });
   $("expList").addEventListener("click", (e) => { const id = e.target.getAttribute("data-del-exp"); if (!id) return; store.expenses = store.expenses.filter((x) => String(x.id) !== String(id)); save(); renderMoney(); });
+
+  $("toRecordList").addEventListener("click", (e) => {
+    const rec = e.target.getAttribute("data-record");
+    const dis = e.target.getAttribute("data-dismiss");
+    if (rec) recordOrder(rec);
+    else if (dis) { dismissed.add(String(dis)); saveDismissed(); renderMoney(); }
+  });
   $("salesList").addEventListener("click", (e) => {
     const collect = e.target.getAttribute("data-collect"), undo = e.target.getAttribute("data-undo-sale");
     if (collect) { const s = store.sales.find((x) => String(x.id) === String(collect)); if (s) { s.deliveryPaid = true; save(); renderMoney(); } }
