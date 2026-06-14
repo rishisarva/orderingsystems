@@ -364,3 +364,7 @@ input[type="date"] {
   .accounts { grid-template-columns: 1fr; }
   .wa-form input { width: 100%; }
 }
+
+/* dashboard sub-nav */
+.subnav { padding: 14px 22px 0; max-width: 1100px; margin: 0 auto; }
+.subnav .seg { display: inline-flex; }
