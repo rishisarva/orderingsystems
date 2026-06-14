@@ -283,7 +283,7 @@ function ping() {
 async function load(manual) {
   if (manual) { $("reIcon").classList.add("spin"); setTimeout(() => $("reIcon").classList.remove("spin"), 700); }
   try {
-    const r = await fetch("/api/orders", { cache: "no-store" });
+    const r = await fetch("/api/orders" + (manual ? "?fresh=1" : ""), { cache: "no-store" });
     const data = await r.json();
     if (!r.ok) {
       const msg = (data.hint ? data.hint + "  " : "") +
@@ -365,9 +365,17 @@ async function load(manual) {
     state.lastUpdated = Date.now();
     tickUpdated();
   } catch (err) {
-    $("livePulse").className = "pulse dead";
-    $("errbox").classList.remove("hidden");
-    $("errbox").textContent = "Couldn't load orders: " + err.message;
+    // If we already have orders on screen, don't wipe them — just flag it quietly
+    if (state.orders.length > 0) {
+      $("livePulse").className = "pulse stale";
+      $("warnbox").classList.remove("hidden");
+      $("warnbox").textContent = "Couldn't refresh just now (showing last loaded orders). " +
+        "If this keeps happening your store may be rate-limiting — try again in a moment.";
+    } else {
+      $("livePulse").className = "pulse dead";
+      $("errbox").classList.remove("hidden");
+      $("errbox").textContent = "Couldn't load orders: " + err.message;
+    }
   }
 }
 
